@@ -1,4 +1,4 @@
-# andSyncTunes (アンシンク・チューンズ)
+# andSyncTunes
 
 ![panForge Banner](assets/ofuse/panforge_cover_1000x150.jpg)
 
