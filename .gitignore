@@ -1,0 +1,50 @@
+# Visual Studio & .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+*.DotSettings.user
+
+# Android & Gradle
+.gradle/
+build/
+*/build/
+app/build/
+andSyncAndroid/build/
+andSyncAndroid/app/build/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystores & Signing Secrets (NEVER COMMIT TO PUBLIC REPO)
+keystore/
+*.jks
+*.keystore
+*.p12
+*.key
+
+# Binary Releases (Uploaded to GitHub Releases instead)
+releases/
+
+# Logs & Temporary
+*.log
+scratch/
+*.tmp
+
+# OS Generated
+.DS_Store
+Thumbs.db
