@@ -480,8 +480,9 @@
 
 ## 6. 配布 & 公開方針 (Distribution & Monetization)
 
-- **配布プラットフォーム**: Google Play ストア（Androidクライアント） / GitHub or 公式サイト（PCエージェント）
-
+- **配布プラットフォーム**: GitHub 公式リポジトリ / Releases 直接配布
+  - **公式リポジトリ**: `https://github.com/panforge-lab/andSyncTunes`
+  - **公式配布ページ (Releases)**: `https://github.com/panforge-lab/andSyncTunes/releases/tag/v0.9.0`
 - **料金モデル**: **完全機能無料 ＋ 開発応援（投げ銭 / ドネーション）モデル**
 
   - **方針理由**:
