@@ -468,12 +468,27 @@ class SyncService : Service() {
                                     throw Exception(finalMsg)
                                 }
 
-                                val destDoc = existingFile ?: albumDoc.createFile("audio/*", safeFileName)
-                                    ?: throw Exception("ファイル作成に失敗しました: $safeFileName")
+                                // 端末側の既存ファイルがPC側より大きい場合、古い末尾ゴミデータが残らないよう事前削除してクリーン再作成
+                                var destDoc = existingFile
+                                if (destDoc != null && expectedSize > 0L && destDoc.length() > expectedSize) {
+                                    try {
+                                        destDoc.delete()
+                                        destDoc = null
+                                    } catch (_: Exception) {}
+                                }
+                                if (destDoc == null) {
+                                    destDoc = albumDoc.createFile("audio/*", safeFileName)
+                                        ?: throw Exception("ファイル作成に失敗しました: $safeFileName")
+                                }
 
                                 var isWriteSuccess = false
                                 try {
-                                    contentResolver.openOutputStream(destDoc.uri)?.use { output ->
+                                    val outStream = try {
+                                        contentResolver.openOutputStream(destDoc.uri, "wt")
+                                    } catch (_: Exception) {
+                                        contentResolver.openOutputStream(destDoc.uri)
+                                    }
+                                    outStream?.use { output ->
                                         res.body?.byteStream()?.use { input ->
                                             val buffer = ByteArray(8192)
                                             var readBytes: Int
@@ -485,7 +500,7 @@ class SyncService : Service() {
                                             }
                                             output.flush()
                                         }
-                                    }
+                                    } ?: throw Exception("ファイル書き込みストリームを開けませんでした")
                                     isWriteSuccess = true
                                     downloadedCount++
                                     downloadedTracks.add(Pair(track, skipFailReason))
@@ -694,6 +709,10 @@ class SyncService : Service() {
                                     } catch (_: Exception) {}
                                     val finalMsg = if (serverErrMsg.isNotBlank()) serverErrMsg else "HTTP ${res.code}"
                                     throw Exception(finalMsg)
+                                }
+
+                                if (destFile.exists() && expectedSize > 0L && destFile.length() > expectedSize) {
+                                    try { destFile.delete() } catch (_: Exception) {}
                                 }
 
                                 var isWriteSuccess = false
