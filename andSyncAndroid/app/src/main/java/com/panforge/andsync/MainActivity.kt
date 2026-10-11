@@ -179,8 +179,7 @@ suspend fun scanLocalPlaylists(context: Context, targetUri: Uri?): List<LocalPla
     result.sortedBy { it.displayName }
 }
 
-// ツリー表示用の階層ノードデータクラス
-// 孤立した野良音楽ファイルのデータクラス
+// 孤立した音楽ファイルのデータクラス
 data class OrphanTrackInfo(
     val relativePath: String, // 例: "米津玄師/STRAY SHEEP/01.mp3"
     val fileName: String,     // 例: "01.mp3"
@@ -190,8 +189,12 @@ data class OrphanTrackInfo(
     val documentFile: DocumentFile
 )
 
-// 端末保存先フォルダから「どのプレイリストにも含まれていない野良音楽ファイル」を走査検出
-suspend fun scanOrphanTracks(context: Context, targetUri: Uri?): List<OrphanTrackInfo> = withContext(Dispatchers.IO) {
+// 端末保存先フォルダから「どのプレイリストにも含まれていない孤立音楽ファイル」を走査検出
+suspend fun scanOrphanTracks(
+    context: Context,
+    targetUri: Uri?,
+    onProgress: (suspend (currentFolder: Int, totalFolders: Int, scannedTracks: Int, foundOrphans: Int) -> Unit)? = null
+): List<OrphanTrackInfo> = withContext(Dispatchers.IO) {
     if (targetUri == null) return@withContext emptyList()
     val targetDoc = DocumentFile.fromTreeUri(context, targetUri) ?: return@withContext emptyList()
     if (!targetDoc.canRead()) return@withContext emptyList()
@@ -208,61 +211,95 @@ suspend fun scanOrphanTracks(context: Context, targetUri: Uri?): List<OrphanTrac
 
     val orphanList = mutableListOf<OrphanTrackInfo>()
 
-    // 2. targetDoc 配下を走査: [Artist] / [Album] / [Track] または [Artist] / [Track]
+    // 2. targetDoc 配下のアーティストフォルダ一覧を取得
     val rootFiles = targetDoc.listFiles()
-    for (artistDoc in rootFiles) {
+    val artistDirs = rootFiles.filter { it.isDirectory }
+    val totalFolders = artistDirs.size
+    var currentFolderIdx = 0
+    var scannedTracks = 0
+
+    onProgress?.invoke(0, totalFolders, 0, 0)
+
+    for (artistDoc in artistDirs) {
+        currentFolderIdx++
         val artistName = artistDoc.name ?: continue
-        if (artistDoc.isDirectory) {
-            val albumFiles = artistDoc.listFiles()
-            for (albumDoc in albumFiles) {
-                val albumName = albumDoc.name ?: continue
-                if (albumDoc.isDirectory) {
-                    val trackFiles = albumDoc.listFiles()
-                    for (trackDoc in trackFiles) {
-                        if (trackDoc.isFile) {
-                            val trackName = trackDoc.name ?: continue
-                            val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-                            if (audioExtensions.contains(ext)) {
-                                val relPath = "$artistName/$albumName/$trackName"
-                                val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
-                                if (!referencedTrackPaths.contains(normPath)) {
-                                    orphanList.add(
-                                        OrphanTrackInfo(
-                                            relativePath = relPath,
-                                            fileName = trackName,
-                                            artist = artistName,
-                                            album = albumName,
-                                            fileSize = trackDoc.length(),
-                                            documentFile = trackDoc
-                                        )
+        val albumFiles = artistDoc.listFiles()
+        for (albumDoc in albumFiles) {
+            val albumName = albumDoc.name ?: continue
+            if (albumDoc.isDirectory) {
+                val trackFiles = albumDoc.listFiles()
+                for (trackDoc in trackFiles) {
+                    if (trackDoc.isFile) {
+                        val trackName = trackDoc.name ?: continue
+                        val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                        if (audioExtensions.contains(ext)) {
+                            scannedTracks++
+                            val relPath = "$artistName/$albumName/$trackName"
+                            val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
+                            if (!referencedTrackPaths.contains(normPath)) {
+                                orphanList.add(
+                                    OrphanTrackInfo(
+                                        relativePath = relPath,
+                                        fileName = trackName,
+                                        artist = artistName,
+                                        album = albumName,
+                                        fileSize = trackDoc.length(),
+                                        documentFile = trackDoc
                                     )
-                                }
+                                )
                             }
                         }
                     }
-                } else if (albumDoc.isFile) {
-                    val trackName = albumName
-                    val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-                    if (audioExtensions.contains(ext)) {
-                        val relPath = "$artistName/$trackName"
-                        val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
-                        if (!referencedTrackPaths.contains(normPath)) {
-                            orphanList.add(
-                                OrphanTrackInfo(
-                                    relativePath = relPath,
-                                    fileName = trackName,
-                                    artist = artistName,
-                                    album = "",
-                                    fileSize = albumDoc.length(),
-                                    documentFile = albumDoc
-                                )
+                }
+            } else if (albumDoc.isFile) {
+                val trackName = albumName
+                val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                if (audioExtensions.contains(ext)) {
+                    scannedTracks++
+                    val relPath = "$artistName/$trackName"
+                    val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
+                    if (!referencedTrackPaths.contains(normPath)) {
+                        orphanList.add(
+                            OrphanTrackInfo(
+                                relativePath = relPath,
+                                fileName = trackName,
+                                artist = artistName,
+                                album = "",
+                                fileSize = albumDoc.length(),
+                                documentFile = albumDoc
                             )
-                        }
+                        )
                     }
                 }
             }
         }
+        onProgress?.invoke(currentFolderIdx, totalFolders, scannedTracks, orphanList.size)
     }
+
+    // ルート直下に置かれた音楽ファイルも念のためチェック
+    for (rootFile in rootFiles) {
+        if (rootFile.isFile) {
+            val trackName = rootFile.name ?: continue
+            val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+            if (audioExtensions.contains(ext)) {
+                scannedTracks++
+                val normPath = trackName.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
+                if (!referencedTrackPaths.contains(normPath)) {
+                    orphanList.add(
+                        OrphanTrackInfo(
+                            relativePath = trackName,
+                            fileName = trackName,
+                            artist = "",
+                            album = "",
+                            fileSize = rootFile.length(),
+                            documentFile = rootFile
+                        )
+                    )
+                }
+            }
+        }
+    }
+    onProgress?.invoke(totalFolders, totalFolders, scannedTracks, orphanList.size)
 
     orphanList.sortedWith(compareBy({ it.artist }, { it.album }, { it.fileName }))
 }
@@ -759,7 +796,7 @@ fun MainSyncApp(
                     selected = selectedTabIndex == 2,
                     onClick = { selectedTabIndex = 2 },
                     icon = { Text("🧹", style = MaterialTheme.typography.titleMedium) },
-                    label = { Text("野良掃除") }
+                    label = { Text("孤立掃除") }
                 )
                 NavigationBarItem(
                     selected = selectedTabIndex == 3,
@@ -824,7 +861,7 @@ fun MainSyncApp(
                 )
             }
             2 -> {
-                // === タブ3: 野良ファイル掃除画面 (孤立曲クリーンアップ) ===
+                // === タブ3: 孤立ファイル掃除画面 (孤立曲クリーンアップ) ===
                 CleanerTabScreen(
                     modifier = Modifier.padding(innerPadding),
                     targetFolderUri = targetFolderUri,
@@ -1704,7 +1741,7 @@ fun ManageTabScreen(
     }
 }
 
-// 🧹 野良ファイル掃除画面 (Orphan Audio Cleaner)
+// 🧹 孤立ファイル掃除画面 (Orphan Audio Cleaner)
 @Composable
 fun CleanerTabScreen(
     modifier: Modifier = Modifier,
@@ -1721,7 +1758,13 @@ fun CleanerTabScreen(
     var isDeleting by remember { mutableStateOf(false) }
     var deleteStatusText by remember { mutableStateOf("") }
 
-    // 野良曲のスキャン関数
+    // 走査進捗状態 (案A: フォルダ数・照合曲数・孤立曲数)
+    var scanProgressFolder by remember { mutableIntStateOf(0) }
+    var scanProgressTotalFolders by remember { mutableIntStateOf(0) }
+    var scanProgressTracks by remember { mutableIntStateOf(0) }
+    var scanProgressOrphans by remember { mutableIntStateOf(0) }
+
+    // 孤立曲のスキャン関数
     fun refreshOrphanList() {
         if (targetFolderUri == null) {
             orphanTracks = emptyList()
@@ -1730,8 +1773,19 @@ fun CleanerTabScreen(
         }
         scope.launch {
             isScanning = true
+            scanProgressFolder = 0
+            scanProgressTotalFolders = 0
+            scanProgressTracks = 0
+            scanProgressOrphans = 0
             try {
-                val list = scanOrphanTracks(context, targetFolderUri)
+                val list = scanOrphanTracks(context, targetFolderUri) { folder, total, tracks, orphans ->
+                    withContext(Dispatchers.Main) {
+                        scanProgressFolder = folder
+                        scanProgressTotalFolders = total
+                        scanProgressTracks = tracks
+                        scanProgressOrphans = orphans
+                    }
+                }
                 orphanTracks = list
                 // 初期状態は全選択
                 selectedRelPaths = list.map { it.relativePath }.toSet()
@@ -1761,7 +1815,7 @@ fun CleanerTabScreen(
         if (targetFolderUri == null) return
         scope.launch(Dispatchers.IO) {
             isDeleting = true
-            deleteStatusText = "野良ファイルを削除中..."
+            deleteStatusText = "孤立ファイルを削除中..."
             try {
                 val targetDoc = DocumentFile.fromTreeUri(context, targetFolderUri)
                 if (targetDoc != null && targetDoc.canWrite()) {
@@ -1856,7 +1910,7 @@ fun CleanerTabScreen(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { if (!isDeleting) showDeleteConfirmDialog = false },
-            title = { Text("🧹 野良ファイルの削除確認") },
+            title = { Text("🧹 孤立ファイルの削除確認") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -1920,7 +1974,7 @@ fun CleanerTabScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("🧹 孤立・野良ファイル掃除", style = MaterialTheme.typography.titleLarge)
+                Text("🧹 孤立ファイル掃除", style = MaterialTheme.typography.titleLarge)
                 Text(
                     text = "どのプレイリストにも含まれていない楽曲を整理します",
                     style = MaterialTheme.typography.bodySmall,
@@ -1958,12 +2012,57 @@ fun CleanerTabScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .padding(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    CircularProgressIndicator()
-                    Text("端末内の楽曲とプレイリストを照合中...", style = MaterialTheme.typography.bodyMedium)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        val progressFraction = if (scanProgressTotalFolders > 0) {
+                            (scanProgressFolder.toFloat() / scanProgressTotalFolders.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                        val percent = (progressFraction * 100).toInt()
+
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = if (scanProgressTotalFolders > 0) "端末内の楽曲とプレイリストを照合中... ($percent%)" else "プレイリストとフォルダを探索中...",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        LinearProgressIndicator(
+                            progress = { progressFraction },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "🔍 照合済み: ${String.format(java.util.Locale.JAPAN, "%,d", scanProgressTracks)} 曲 ($scanProgressFolder / $scanProgressTotalFolders フォルダー)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "🧹 孤立候補: ${scanProgressOrphans} 曲 検出",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (scanProgressOrphans > 0) MaterialTheme.colorScheme.error else Color.Gray,
+                                fontWeight = if (scanProgressOrphans > 0) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                            )
+                        }
+                    }
                 }
             }
         } else if (orphanTracks.isEmpty()) {
@@ -1982,7 +2081,7 @@ fun CleanerTabScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("✨ 野良ファイルはありません", style = MaterialTheme.typography.titleMedium)
+                        Text("✨ 孤立ファイルはありません", style = MaterialTheme.typography.titleMedium)
                         Text(
                             text = "端末内のすべての音楽ファイルは、正常にいずれかのプレイリストに含まれています。ストレージは綺麗に整理されています！",
                             style = MaterialTheme.typography.bodySmall,
@@ -2007,7 +2106,7 @@ fun CleanerTabScreen(
                 ) {
                     Column {
                         Text(
-                            text = "⚠️ 野良ファイルを検出: ${orphanTracks.size} 曲",
+                            text = "⚠️ 孤立ファイルを検出: ${orphanTracks.size} 曲",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -2035,7 +2134,7 @@ fun CleanerTabScreen(
                 }
             }
 
-            // 野良曲リスト
+            // 孤立曲リスト
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
