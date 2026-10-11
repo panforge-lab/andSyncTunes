@@ -77,9 +77,9 @@
 
        - **方式3 (手動入力)**: IPアドレス:ポートの手動直接入力（フォールバック）。
 
-  4. **デスクトップUI (`andSync.Desktop`)**:
+  4. **デスクトップUI (`andSyncTunes.Desktop.exe`)**:
 
-     - **名前付きMutexによる二重起動（多重常駐）完全防止**: Global\andSync_Desktop_SingleInstance_Mutex により、重複起動時は案内ダイアログを表示して安全に即終了。
+     - **名前付きMutexによる二重起動（多重常駐）完全防止**: `Global\andSyncTunes_Desktop_SingleInstance_Mutex` により、重複起動時は案内ダイアログを表示して安全に即終了。
 
      - **タスクトレイ常駐型 (Tray Agent)**:
 

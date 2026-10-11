@@ -192,7 +192,7 @@ public class TrayApplicationContext : ApplicationContext
     }
 
     private const string StartupRegKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string StartupAppName = "andSync";
+    private const string StartupAppName = "andSyncTunes";
 
     private static bool IsStartupEnabled()
     {

@@ -2,7 +2,7 @@ namespace andSync.Desktop;
 
 static class Program
 {
-    private const string MutexName = @"Global\andSync_Desktop_SingleInstance_Mutex";
+    private const string MutexName = @"Global\andSyncTunes_Desktop_SingleInstance_Mutex";
 
     /// <summary>
     ///  The main entry point for the application.
@@ -14,8 +14,8 @@ static class Program
         if (!createdNew)
         {
             MessageBox.Show(
-                "andSync は既に起動しています。\n画面右下のタスクトレイ（通知領域）にある 🎵 アイコンをご確認ください。",
-                "andSync - 多重起動の防止",
+                "andSyncTunes は既に起動しています。\n画面右下のタスクトレイ（通知領域）にある 🎵 アイコンをご確認ください。",
+                "andSyncTunes - 多重起動の防止",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information
             );
