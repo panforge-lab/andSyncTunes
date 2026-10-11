@@ -1,7 +1,5 @@
 # andSyncTunes
 
-![panForge Banner](assets/ofuse/panforge_cover_1000x150.jpg)
-
 **iTunesとAndroid端末の間で、楽曲・プレイリストを快適にワイヤレス同期する超軽量Wi-Fi同期ツール。**  
 Windowsタスクトレイ常駐エージェントと、Androidネイティブクライアントで構成されています。
 
