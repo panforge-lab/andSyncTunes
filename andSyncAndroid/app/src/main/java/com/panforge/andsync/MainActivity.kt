@@ -180,6 +180,93 @@ suspend fun scanLocalPlaylists(context: Context, targetUri: Uri?): List<LocalPla
 }
 
 // ツリー表示用の階層ノードデータクラス
+// 孤立した野良音楽ファイルのデータクラス
+data class OrphanTrackInfo(
+    val relativePath: String, // 例: "米津玄師/STRAY SHEEP/01.mp3"
+    val fileName: String,     // 例: "01.mp3"
+    val artist: String,       // 例: "米津玄師"
+    val album: String,        // 例: "STRAY SHEEP"
+    val fileSize: Long,       // 例: 8492019
+    val documentFile: DocumentFile
+)
+
+// 端末保存先フォルダから「どのプレイリストにも含まれていない野良音楽ファイル」を走査検出
+suspend fun scanOrphanTracks(context: Context, targetUri: Uri?): List<OrphanTrackInfo> = withContext(Dispatchers.IO) {
+    if (targetUri == null) return@withContext emptyList()
+    val targetDoc = DocumentFile.fromTreeUri(context, targetUri) ?: return@withContext emptyList()
+    if (!targetDoc.canRead()) return@withContext emptyList()
+
+    // 1. まず全 M3U8 プレイリストに登録されている楽曲の相対パスを正規化して集合化
+    val playlists = scanLocalPlaylists(context, targetUri)
+    val referencedTrackPaths = playlists
+        .flatMap { it.relativeTrackPaths }
+        .map { it.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT) }
+        .toSet()
+
+    // 音楽ファイルの拡張子
+    val audioExtensions = setOf("mp3", "m4a", "flac", "aac", "wav", "ogg", "wma", "alac", "opus", "aiff")
+
+    val orphanList = mutableListOf<OrphanTrackInfo>()
+
+    // 2. targetDoc 配下を走査: [Artist] / [Album] / [Track] または [Artist] / [Track]
+    val rootFiles = targetDoc.listFiles()
+    for (artistDoc in rootFiles) {
+        val artistName = artistDoc.name ?: continue
+        if (artistDoc.isDirectory) {
+            val albumFiles = artistDoc.listFiles()
+            for (albumDoc in albumFiles) {
+                val albumName = albumDoc.name ?: continue
+                if (albumDoc.isDirectory) {
+                    val trackFiles = albumDoc.listFiles()
+                    for (trackDoc in trackFiles) {
+                        if (trackDoc.isFile) {
+                            val trackName = trackDoc.name ?: continue
+                            val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                            if (audioExtensions.contains(ext)) {
+                                val relPath = "$artistName/$albumName/$trackName"
+                                val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
+                                if (!referencedTrackPaths.contains(normPath)) {
+                                    orphanList.add(
+                                        OrphanTrackInfo(
+                                            relativePath = relPath,
+                                            fileName = trackName,
+                                            artist = artistName,
+                                            album = albumName,
+                                            fileSize = trackDoc.length(),
+                                            documentFile = trackDoc
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (albumDoc.isFile) {
+                    val trackName = albumName
+                    val ext = trackName.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                    if (audioExtensions.contains(ext)) {
+                        val relPath = "$artistName/$trackName"
+                        val normPath = relPath.replace('\\', '/').trim().lowercase(java.util.Locale.ROOT)
+                        if (!referencedTrackPaths.contains(normPath)) {
+                            orphanList.add(
+                                OrphanTrackInfo(
+                                    relativePath = relPath,
+                                    fileName = trackName,
+                                    artist = artistName,
+                                    album = "",
+                                    fileSize = albumDoc.length(),
+                                    documentFile = albumDoc
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    orphanList.sortedWith(compareBy({ it.artist }, { it.album }, { it.fileName }))
+}
+
 data class TreePlaylistItem(
     val item: PlaylistItem,
     val level: Int,
@@ -665,12 +752,18 @@ fun MainSyncApp(
                 NavigationBarItem(
                     selected = selectedTabIndex == 1,
                     onClick = { selectedTabIndex = 1 },
-                    icon = { Text("🗑️", style = MaterialTheme.typography.titleMedium) },
-                    label = { Text("整理・削除") }
+                    icon = { Text("📋", style = MaterialTheme.typography.titleMedium) },
+                    label = { Text("リスト整理") }
                 )
                 NavigationBarItem(
                     selected = selectedTabIndex == 2,
                     onClick = { selectedTabIndex = 2 },
+                    icon = { Text("🧹", style = MaterialTheme.typography.titleMedium) },
+                    label = { Text("野良掃除") }
+                )
+                NavigationBarItem(
+                    selected = selectedTabIndex == 3,
+                    onClick = { selectedTabIndex = 3 },
                     icon = { Text("⚙️", style = MaterialTheme.typography.titleMedium) },
                     label = { Text("設定") }
                 )
@@ -701,7 +794,7 @@ fun MainSyncApp(
                     },
                     onDeselectAll = { selectedPlaylistIds = emptySet() },
                     onRefresh = { connectAndFetch() },
-                    onGoToSettings = { selectedTabIndex = 2 },
+                    onGoToSettings = { selectedTabIndex = 3 },
                     isSyncing = isSyncing,
                     syncProgressFraction = syncProgressFraction,
                     syncProgressText = syncProgressText,
@@ -723,15 +816,23 @@ fun MainSyncApp(
                 )
             }
             1 -> {
-                // === タブ2: 整理・削除画面 (スマート削除モード) ===
+                // === タブ2: リスト整理画面 (M3U8スマート削除) ===
                 ManageTabScreen(
                     modifier = Modifier.padding(innerPadding),
                     targetFolderUri = targetFolderUri,
-                    onGoToSettings = { selectedTabIndex = 2 }
+                    onGoToSettings = { selectedTabIndex = 3 }
+                )
+            }
+            2 -> {
+                // === タブ3: 野良ファイル掃除画面 (孤立曲クリーンアップ) ===
+                CleanerTabScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    targetFolderUri = targetFolderUri,
+                    onGoToSettings = { selectedTabIndex = 3 }
                 )
             }
             else -> {
-                // === タブ3: 設定画面 ===
+                // === タブ4: 設定画面 ===
                 SettingsTabScreen(
                     modifier = Modifier.padding(innerPadding),
                     discoveryStatus = discoveryStatus,
@@ -1597,6 +1698,427 @@ fun ManageTabScreen(
                     enabled = !isDeleting
                 ) {
                     Text("選択した $deleteCount 件のプレイリストを削除...", color = MaterialTheme.colorScheme.onError)
+                }
+            }
+        }
+    }
+}
+
+// 🧹 野良ファイル掃除画面 (Orphan Audio Cleaner)
+@Composable
+fun CleanerTabScreen(
+    modifier: Modifier = Modifier,
+    targetFolderUri: Uri?,
+    onGoToSettings: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var orphanTracks by remember { mutableStateOf<List<OrphanTrackInfo>>(emptyList()) }
+    var selectedRelPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isScanning by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
+    var deleteStatusText by remember { mutableStateOf("") }
+
+    // 野良曲のスキャン関数
+    fun refreshOrphanList() {
+        if (targetFolderUri == null) {
+            orphanTracks = emptyList()
+            selectedRelPaths = emptySet()
+            return
+        }
+        scope.launch {
+            isScanning = true
+            try {
+                val list = scanOrphanTracks(context, targetFolderUri)
+                orphanTracks = list
+                // 初期状態は全選択
+                selectedRelPaths = list.map { it.relativePath }.toSet()
+            } finally {
+                isScanning = false
+            }
+        }
+    }
+
+    LaunchedEffect(targetFolderUri) {
+        refreshOrphanList()
+    }
+
+    // 選択された削除対象曲
+    val selectedTracks = remember(orphanTracks, selectedRelPaths) {
+        orphanTracks.filter { selectedRelPaths.contains(it.relativePath) }
+    }
+    val selectedTotalBytes = remember(selectedTracks) {
+        selectedTracks.sumOf { it.fileSize }
+    }
+    val allTotalBytes = remember(orphanTracks) {
+        orphanTracks.sumOf { it.fileSize }
+    }
+
+    // 削除処理の実行
+    fun executeOrphanDelete() {
+        if (targetFolderUri == null) return
+        scope.launch(Dispatchers.IO) {
+            isDeleting = true
+            deleteStatusText = "野良ファイルを削除中..."
+            try {
+                val targetDoc = DocumentFile.fromTreeUri(context, targetFolderUri)
+                if (targetDoc != null && targetDoc.canWrite()) {
+                    var deletedCount = 0
+                    val affectedFolders = mutableSetOf<Pair<String, String>>()
+
+                    selectedTracks.forEach { track ->
+                        val parts = track.relativePath.split('/')
+                        if (parts.size >= 3) {
+                            val artistName = parts[0]
+                            val albumName = parts[1]
+                            val fileName = parts[2]
+                            affectedFolders.add(Pair(artistName, albumName))
+
+                            val artistDoc = targetDoc.findFile(artistName)
+                            val albumDoc = artistDoc?.findFile(albumName)
+                            val fileDoc = albumDoc?.findFile(fileName)
+                            if (fileDoc != null && fileDoc.delete()) {
+                                deletedCount++
+                                if (deletedCount % 10 == 0) {
+                                    try {
+                                        val currentFree = getAvailableStorageBytes(context, targetFolderUri)
+                                        if (currentFree > 0L) {
+                                            SyncStateManager.updateStorage(currentFree)
+                                        }
+                                    } catch (_: Exception) {}
+                                    withContext(Dispatchers.Main) {
+                                        deleteStatusText = "削除中: $deletedCount / ${selectedTracks.size} 曲"
+                                    }
+                                }
+                            }
+                        } else if (parts.size == 2) {
+                            val artistName = parts[0]
+                            val fileName = parts[1]
+                            affectedFolders.add(Pair(artistName, ""))
+
+                            val artistDoc = targetDoc.findFile(artistName)
+                            val fileDoc = artistDoc?.findFile(fileName)
+                            if (fileDoc != null && fileDoc.delete()) {
+                                deletedCount++
+                            }
+                        }
+                    }
+
+                    // 空になったアルバム・アーティストフォルダを掃除
+                    affectedFolders.forEach { (artistName, albumName) ->
+                        val artistDoc = targetDoc.findFile(artistName)
+                        if (artistDoc != null && artistDoc.isDirectory) {
+                            if (albumName.isNotEmpty()) {
+                                val albumDoc = artistDoc.findFile(albumName)
+                                if (albumDoc != null && albumDoc.isDirectory && albumDoc.listFiles().isEmpty()) {
+                                    albumDoc.delete()
+                                }
+                            }
+                            if (artistDoc.listFiles().isEmpty()) {
+                                artistDoc.delete()
+                            }
+                        }
+                    }
+
+                    // 空き容量確定反映
+                    try {
+                        val finalFree = getAvailableStorageBytes(context, targetFolderUri)
+                        if (finalFree > 0L) {
+                            SyncStateManager.updateStorage(finalFree)
+                        }
+                    } catch (_: Exception) {}
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            context,
+                            "🧹 お掃除完了！ ${deletedCount} 曲を削除しました (${formatFileSize(selectedTotalBytes)} 解放)",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        deleteStatusText = "お掃除完了！"
+                        refreshOrphanList()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "削除エラー: ${e.message}", Toast.LENGTH_LONG).show()
+                    deleteStatusText = "エラー: ${e.message}"
+                }
+            } finally {
+                isDeleting = false
+                showDeleteConfirmDialog = false
+            }
+        }
+    }
+
+    // 削除確認ダイアログ
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeleting) showDeleteConfirmDialog = false },
+            title = { Text("🧹 野良ファイルの削除確認") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "どのプレイリストにも含まれていない ${selectedTracks.size} 曲を端末から完全に削除します。",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    HorizontalDivider()
+                    Text(
+                        text = "• 削除対象: ${selectedTracks.size} 曲",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = "• 解放されるストレージ容量: ${formatFileSize(selectedTotalBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "※一度削除したファイルは復元できません。PCのiTunesから再度同期することは可能です。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray
+                    )
+                    if (isDeleting) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text(deleteStatusText, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { executeOrphanDelete() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    enabled = !isDeleting
+                ) {
+                    Text("削除を実行", color = MaterialTheme.colorScheme.onError)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirmDialog = false },
+                    enabled = !isDeleting
+                ) {
+                    Text("キャンセル")
+                }
+            }
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // トップヘッダー
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("🧹 孤立・野良ファイル掃除", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = "どのプレイリストにも含まれていない楽曲を整理します",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+            FilledTonalButton(onClick = { refreshOrphanList() }, enabled = !isScanning && !isDeleting) {
+                Text("再スキャン")
+            }
+        }
+
+        HorizontalDivider()
+
+        if (targetFolderUri == null) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("⚠️ 音楽保存先フォルダーが未設定です", style = MaterialTheme.typography.titleMedium)
+                    Button(onClick = onGoToSettings) {
+                        Text("設定画面でフォルダーを選択")
+                    }
+                }
+            }
+        } else if (isScanning) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text("端末内の楽曲とプレイリストを照合中...", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else if (orphanTracks.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("✨ 野良ファイルはありません", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "端末内のすべての音楽ファイルは、正常にいずれかのプレイリストに含まれています。ストレージは綺麗に整理されています！",
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
+        } else {
+            // スキャンサマリー
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "⚠️ 野良ファイルを検出: ${orphanTracks.size} 曲",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                        Text(
+                            text = "合計: ${formatFileSize(allTotalBytes)} 解放可能",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(
+                            onClick = { selectedRelPaths = orphanTracks.map { it.relativePath }.toSet() },
+                            enabled = !isDeleting
+                        ) {
+                            Text("全選択", style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(
+                            onClick = { selectedRelPaths = emptySet() },
+                            enabled = !isDeleting
+                        ) {
+                            Text("全解除", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+
+            // 野良曲リスト
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(orphanTracks, key = { it.relativePath }) { track ->
+                    val isChecked = selectedRelPaths.contains(track.relativePath)
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isChecked) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (!isDeleting) {
+                                    selectedRelPaths = if (isChecked) {
+                                        selectedRelPaths - track.relativePath
+                                    } else {
+                                        selectedRelPaths + track.relativePath
+                                    }
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = { checked ->
+                                    if (!isDeleting) {
+                                        selectedRelPaths = if (checked) {
+                                            selectedRelPaths + track.relativePath
+                                        } else {
+                                            selectedRelPaths - track.relativePath
+                                        }
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.fileName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (track.album.isNotEmpty()) "${track.artist} • ${track.album}" else track.artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = formatFileSize(track.fileSize),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 削除ボタン
+            if (selectedTracks.isNotEmpty()) {
+                Button(
+                    onClick = { showDeleteConfirmDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    enabled = !isDeleting
+                ) {
+                    Text(
+                        text = "選択した ${selectedTracks.size} 曲を削除 (${formatFileSize(selectedTotalBytes)} 解放)",
+                        color = MaterialTheme.colorScheme.onError
+                    )
                 }
             }
         }

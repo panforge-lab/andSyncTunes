@@ -294,8 +294,27 @@ Track ID: {trackId}
             await next();
         });
 
-        // APKパス
-        string apkPath = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\andSyncAndroid\app\build\outputs\apk\debug\app-debug.apk"));
+        // APK探索（Release版最優先）
+        static string? ResolveApkPath()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var candidates = new[]
+            {
+                // 1. Release APK (プロジェクトビルド出力)
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\..\andSyncAndroid\app\build\outputs\apk\release\app-release.apk")),
+                // 2. releases/ 配下の正式APK
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\..\releases\v0.9.0\andSyncTunes-v0.9.0.apk")),
+                // 3. ポータブル配布ディレクトリ内
+                Path.Combine(baseDir, "andSyncTunes.apk"),
+                Path.Combine(baseDir, "andSyncTunes-v0.9.0.apk"),
+                Path.Combine(baseDir, "app-release.apk"),
+                Path.Combine(baseDir, "apk", "andSyncTunes.apk"),
+                // 4. フォールバック: Debug APK
+                Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\..\andSyncAndroid\app\build\outputs\apk\debug\app-debug.apk")),
+                Path.Combine(baseDir, "app-debug.apk")
+            };
+            return candidates.FirstOrDefault(File.Exists);
+        }
 
         // 1. ルート：Webビュー ＆ チュートリアル ＆ QRコード
         app.MapGet("/", () =>
@@ -492,10 +511,10 @@ Track ID: {trackId}
         <div class='card'>
             <h2>📱 Android アプリのダウンロード</h2>
             <p style='font-size: 14px; color: #475569;'>
-                スマホのブラウザでこのボタンをタップすると、最新の andSync アプリ（APK）を直接ダウンロードしてインストールできます。
+                スマホのブラウザでこのボタンをタップすると、最新の andSyncTunes アプリ（APK）を直接ダウンロードしてインストールできます。
             </p>
             <div style='text-align: center; margin: 15px 0;'>
-                <a href='/download-apk' class='btn'>📥 andSync Androidアプリ (APK) をダウンロード</a>
+                <a href='/download-apk' class='btn'>📥 andSyncTunes Androidアプリ (APK) をダウンロード</a>
             </div>
         </div>
 
@@ -536,14 +555,15 @@ Track ID: {trackId}
             return Results.NotFound();
         });
 
-        // 2. APKダウンロード
+        // 2. APKダウンロード（Release版最優先）
         app.MapGet("/download-apk", () =>
         {
-            if (!File.Exists(apkPath))
+            string? effectiveApk = ResolveApkPath();
+            if (string.IsNullOrEmpty(effectiveApk) || !File.Exists(effectiveApk))
             {
-                return Results.NotFound(new { error = "APK file not found", expectedPath = apkPath });
+                return Results.NotFound(new { error = "APK file not found" });
             }
-            return Results.File(apkPath, "application/vnd.android.package-archive", "andSync-debug.apk");
+            return Results.File(effectiveApk, "application/vnd.android.package-archive", "andSyncTunes.apk");
         });
 
         // 3. 疎通確認
