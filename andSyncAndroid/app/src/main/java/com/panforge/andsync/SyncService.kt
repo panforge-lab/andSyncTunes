@@ -395,13 +395,11 @@ class SyncService : Service() {
                 trackRelativePathMap[track.trackId] = relativePath
 
                 val existingFile = albumDoc.findFile(safeFileName)
+                    ?: albumDoc.listFiles().firstOrNull { it.isFile && it.name?.equals(safeFileName, ignoreCase = true) == true }
                 val expectedSize = track.fileSize ?: 0L
-                val expectedModified = track.lastModified ?: 0L
 
                 val isUpToDate = if (existingFile != null && existingFile.exists() && expectedSize > 0L) {
-                    val localSize = existingFile.length()
-                    val localModified = existingFile.lastModified()
-                    localSize == expectedSize && localModified >= expectedModified
+                    existingFile.length() == expectedSize
                 } else {
                     false
                 }
@@ -618,10 +616,9 @@ class SyncService : Service() {
 
                 val destFile = File(albumDir, safeFileName)
                 val expectedSize = track.fileSize ?: 0L
-                val expectedModified = track.lastModified ?: 0L
 
                 val isUpToDate = if (destFile.exists() && expectedSize > 0L) {
-                    destFile.length() == expectedSize && destFile.lastModified() >= expectedModified
+                    destFile.length() == expectedSize
                 } else {
                     false
                 }
