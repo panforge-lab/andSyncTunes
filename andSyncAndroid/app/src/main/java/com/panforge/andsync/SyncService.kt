@@ -87,6 +87,19 @@ class SyncService : Service() {
 
     private var lastNotificationUpdateTime = 0L
 
+    private fun sanitizeFolderName(name: String, fallback: String): String {
+        val sanitized = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .trim()
+            .trimEnd('.')
+            .trim()
+        return if (sanitized.isBlank()) fallback else sanitized
+    }
+
+    private fun sanitizeFileName(name: String, fallback: String = "track.mp3"): String {
+        val sanitized = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+        return if (sanitized.isBlank()) fallback else sanitized
+    }
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -351,12 +364,10 @@ class SyncService : Service() {
                     throw Exception("Wi-Fi切断を検知しました。パケット保護のため同期を中断しました")
                 }
 
-                val artistName = (track.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist")
-                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-                val albumName = (track.album?.takeIf { it.isNotBlank() } ?: "Unknown Album")
-                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+                val artistName = sanitizeFolderName(track.artist ?: "", "Unknown Artist")
+                val albumName = sanitizeFolderName(track.album ?: "", "Unknown Album")
                 val rawFileName = track.fileName ?: "${track.name}.mp3"
-                val safeFileName = rawFileName.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+                val safeFileName = sanitizeFileName(rawFileName)
 
                 // アーティストフォルダ取得または作成
                 val artistKey = artistName.lowercase()
@@ -515,7 +526,8 @@ class SyncService : Service() {
                 if (SyncStateManager.isCancelRequested) throw CancellationException()
 
                 val tracks = playlistTrackMap[pl] ?: emptyList()
-                val safePlaylistName = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_") + ".m3u8"
+                val safePlaylistBase = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().trimEnd('.').trim().ifEmpty { "playlist" }
+                val safePlaylistName = "$safePlaylistBase.m3u8"
                 val m3u8Key = safePlaylistName.lowercase()
                 val m3u8Doc = existingM3u8Map[m3u8Key] ?: targetDoc.createFile("audio/x-mpegurl", safePlaylistName)?.also {
                     existingM3u8Map[m3u8Key] = it
@@ -574,12 +586,10 @@ class SyncService : Service() {
                     throw Exception("Wi-Fi切断を検知しました。パケット保護のため同期を中断しました")
                 }
 
-                val artistName = (track.artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist")
-                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-                val albumName = (track.album?.takeIf { it.isNotBlank() } ?: "Unknown Album")
-                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+                val artistName = sanitizeFolderName(track.artist ?: "", "Unknown Artist")
+                val albumName = sanitizeFolderName(track.album ?: "", "Unknown Album")
                 val rawFileName = track.fileName ?: "${track.name}.mp3"
-                val safeFileName = rawFileName.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+                val safeFileName = sanitizeFileName(rawFileName)
 
                 val albumDir = File(File(targetDir, artistName), albumName)
                 if (!albumDir.exists()) albumDir.mkdirs()
@@ -699,7 +709,8 @@ class SyncService : Service() {
                 if (SyncStateManager.isCancelRequested) throw CancellationException()
 
                 val tracks = playlistTrackMap[pl] ?: emptyList()
-                val safePlaylistName = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_") + ".m3u8"
+                val safePlaylistBase = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().trimEnd('.').trim().ifEmpty { "playlist" }
+                val safePlaylistName = "$safePlaylistBase.m3u8"
                 val m3u8File = File(targetDir, safePlaylistName)
                 FileOutputStream(m3u8File).use { output ->
                     OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
