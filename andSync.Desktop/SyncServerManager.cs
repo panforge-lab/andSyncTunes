@@ -317,8 +317,12 @@ Track ID: {trackId}
         }
 
         // 1. ルート：Webビュー ＆ チュートリアル ＆ QRコード
-        app.MapGet("/", () =>
+        app.MapGet("/", (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            context.Response.Headers.Expires = "0";
+
             int trackCount = Library?.Tracks.Count ?? 0;
             int playlistCount = Library?.Playlists.Count ?? 0;
             bool hasLibraryData = trackCount > 0;
@@ -514,7 +518,8 @@ Track ID: {trackId}
                 スマホのブラウザでこのボタンをタップすると、最新の andSyncTunes アプリ（APK）を直接ダウンロードしてインストールできます。
             </p>
             <div style='text-align: center; margin: 15px 0;'>
-                <a href='/download-apk' class='btn'>📥 andSyncTunes Androidアプリ (APK) をダウンロード</a>
+                <a href='/download-apk?v=0.9.0-release' class='btn'>📥 andSyncTunes Androidアプリ (Release版 / 約1.9MB) をダウンロード</a>
+                <div style='margin-top: 8px; font-size: 12px; color: #64748b;'>※ 以前の旧版/Debug版をインストール済みの場合は、署名競合を防ぐため端末側でアンインストール後にインストールしてください。</div>
             </div>
         </div>
 
@@ -556,8 +561,12 @@ Track ID: {trackId}
         });
 
         // 2. APKダウンロード（Release版最優先）
-        app.MapGet("/download-apk", () =>
+        app.MapGet("/download-apk", (HttpContext context) =>
         {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            context.Response.Headers.Expires = "0";
+
             string? effectiveApk = ResolveApkPath();
             if (string.IsNullOrEmpty(effectiveApk) || !File.Exists(effectiveApk))
             {
