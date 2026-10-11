@@ -339,7 +339,7 @@ class SyncService : Service() {
         var downloadedCount = 0
         var skippedCount = 0
         val failedTracks = mutableListOf<Pair<TrackDetail, String>>()
-        val downloadedTracks = mutableListOf<TrackDetail>()
+        val downloadedTracks = mutableListOf<Pair<TrackDetail, String>>()
 
         if (targetFolderUri != null) {
             // SAF (microSD / ストレージ)
@@ -409,6 +409,14 @@ class SyncService : Service() {
                     SyncStateManager.updateProgress(index + 1, totalUniqueCount, "スキップ (一致): ${track.name}")
                     updateNotification("スキップ (${index + 1}/$totalUniqueCount): ${track.name}", index + 1, totalUniqueCount, ongoing = true)
                 } else {
+                    val skipFailReason = when {
+                        existingFile == null -> "ファイル未検出 (フォルダ: '${albumDoc.name}', 探索: '$safeFileName')"
+                        !existingFile.exists() -> "ファイル存在せず (!exists)"
+                        expectedSize <= 0L -> "PCサイズ不正 (expected: $expectedSize)"
+                        existingFile.length() != expectedSize -> "サイズ不一致 (端末: ${existingFile.length()}B != PC: ${expectedSize}B)"
+                        else -> "不明"
+                    }
+
                     val maxRetries = 3
                     var isDownloaded = false
                     var trackErrorMsg = ""
@@ -428,10 +436,11 @@ class SyncService : Service() {
                             }
 
                             val queryJoin = if (track.downloadUrl.contains("?")) "&" else "?"
+                            val encodedReason = java.net.URLEncoder.encode(skipFailReason, "UTF-8")
                             val downloadUrl = if (authToken.isNotBlank()) {
-                                "http://$serverHost${track.downloadUrl}${queryJoin}token=$authToken"
+                                "http://$serverHost${track.downloadUrl}${queryJoin}token=$authToken&reason=$encodedReason"
                             } else {
-                                "http://$serverHost${track.downloadUrl}"
+                                "http://$serverHost${track.downloadUrl}${queryJoin}reason=$encodedReason"
                             }
                             val fileReqBuilder = Request.Builder().url(downloadUrl)
                             if (authToken.isNotBlank()) {
@@ -479,7 +488,7 @@ class SyncService : Service() {
                                     }
                                     isWriteSuccess = true
                                     downloadedCount++
-                                    downloadedTracks.add(track)
+                                    downloadedTracks.add(Pair(track, skipFailReason))
                                     isDownloaded = true
 
                                     // 10曲転送ごとにストレージ空き容量を半リアルタイム取得・更新 (StatFsは軽量システムコールのため速度影響ゼロ)
@@ -561,7 +570,7 @@ class SyncService : Service() {
                 "同期完了 (一部失敗あり): ${selectedPlaylists.size}件のプレイリスト\n(転送: ${downloadedCount}曲, スキップ: ${skippedCount}曲, ⚠️ 失敗: ${failedTracks.size}曲)"
             }
             val resultItems = mutableListOf<SyncResultItem>()
-            downloadedTracks.forEach { track ->
+            downloadedTracks.forEach { (track, reason) ->
                 val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
                 resultItems.add(
                     SyncResultItem(
@@ -570,7 +579,8 @@ class SyncService : Service() {
                         artist = track.artist,
                         album = track.album,
                         playlistName = plNames,
-                        isSuccess = true
+                        isSuccess = true,
+                        errorMessage = reason
                     )
                 )
             }
@@ -628,6 +638,13 @@ class SyncService : Service() {
                     SyncStateManager.updateProgress(index + 1, totalUniqueCount, "スキップ (一致): ${track.name}")
                     updateNotification("スキップ (${index + 1}/$totalUniqueCount): ${track.name}", index + 1, totalUniqueCount, ongoing = true)
                 } else {
+                    val skipFailReason = when {
+                        !destFile.exists() -> "ファイル未検出 (探索: '${destFile.absolutePath}')"
+                        expectedSize <= 0L -> "PCサイズ不正 (expected: $expectedSize)"
+                        destFile.length() != expectedSize -> "サイズ不一致 (端末: ${destFile.length()}B != PC: ${expectedSize}B)"
+                        else -> "不明"
+                    }
+
                     val maxRetries = 3
                     var isDownloaded = false
                     var trackErrorMsg = ""
@@ -647,10 +664,11 @@ class SyncService : Service() {
                             }
 
                             val queryJoin = if (track.downloadUrl.contains("?")) "&" else "?"
+                            val encodedReason = java.net.URLEncoder.encode(skipFailReason, "UTF-8")
                             val downloadUrl = if (authToken.isNotBlank()) {
-                                "http://$serverHost${track.downloadUrl}${queryJoin}token=$authToken"
+                                "http://$serverHost${track.downloadUrl}${queryJoin}token=$authToken&reason=$encodedReason"
                             } else {
-                                "http://$serverHost${track.downloadUrl}"
+                                "http://$serverHost${track.downloadUrl}${queryJoin}reason=$encodedReason"
                             }
                             val fileReqBuilder = Request.Builder().url(downloadUrl)
                             if (authToken.isNotBlank()) {
@@ -695,7 +713,7 @@ class SyncService : Service() {
                                     }
                                     isWriteSuccess = true
                                     downloadedCount++
-                                    downloadedTracks.add(track)
+                                    downloadedTracks.add(Pair(track, skipFailReason))
                                     isDownloaded = true
                                 } finally {
                                     if (!isWriteSuccess && destFile.exists()) {
@@ -748,7 +766,7 @@ class SyncService : Service() {
                 "同期完了 (一部失敗あり): ${selectedPlaylists.size}件のプレイリスト\n(転送: ${downloadedCount}曲, スキップ: ${skippedCount}曲, ⚠️ 失敗: ${failedTracks.size}曲)"
             }
             val resultItems = mutableListOf<SyncResultItem>()
-            downloadedTracks.forEach { track ->
+            downloadedTracks.forEach { (track, reason) ->
                 val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
                 resultItems.add(
                     SyncResultItem(
@@ -757,7 +775,8 @@ class SyncService : Service() {
                         artist = track.artist,
                         album = track.album,
                         playlistName = plNames,
-                        isSuccess = true
+                        isSuccess = true,
+                        errorMessage = reason
                     )
                 )
             }

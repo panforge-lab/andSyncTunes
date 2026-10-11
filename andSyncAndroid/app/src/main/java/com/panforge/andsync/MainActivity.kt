@@ -1410,12 +1410,12 @@ fun SyncTabScreen(
                                         color = Color.DarkGray
                                     )
                                 }
-                                if (!item.isSuccess && !item.errorMessage.isNullOrBlank()) {
+                                if (!item.errorMessage.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "❗ 原因: ${item.errorMessage}",
+                                        if (item.isSuccess) "ℹ️ 転送理由: ${item.errorMessage}" else "❗ 原因: ${item.errorMessage}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.error,
+                                        color = if (item.isSuccess) Color(0xFF1565C0) else MaterialTheme.colorScheme.error,
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                                     )
                                 }

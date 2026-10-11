@@ -210,14 +210,15 @@ Track ID: {trackId}
         }
     }
 
-    public void LogTransferredTrack(int trackId, string trackName, string artistName, string albumName, string fileName, long size)
+    public void LogTransferredTrack(int trackId, string trackName, string artistName, string albumName, string fileName, long size, string? reason = null)
     {
         try
         {
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "transferred_tracks.log");
-            string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [⭕ 転送成功] Track ID: {trackId} | {artistName} - {trackName} | アルバム: {albumName} | ファイル: {fileName} | サイズ: {size:N0} bytes\n";
+            string reasonStr = !string.IsNullOrEmpty(reason) ? $" | 理由: {reason}" : "";
+            string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [⭕ 転送成功] Track ID: {trackId} | {artistName} - {trackName} | アルバム: {albumName} | ファイル: {fileName} | サイズ: {size:N0} bytes{reasonStr}\n";
             File.AppendAllText(logPath, entry, System.Text.Encoding.UTF8);
-            OnLog?.Invoke($"[転送成功] {artistName} - {trackName} ({fileName})");
+            OnLog?.Invoke($"[転送成功] {artistName} - {trackName} ({fileName}){reasonStr}");
         }
         catch (Exception ex)
         {
@@ -705,8 +706,9 @@ Track ID: {trackId}
         });
 
         // 6. 楽曲ダウンロード
-        app.MapGet("/api/track/{id:int}/download", (int id) =>
+        app.MapGet("/api/track/{id:int}/download", (int id, HttpContext httpContext) =>
         {
+            string? reason = httpContext.Request.Query["reason"].ToString();
             if (Library == null || !Library.Tracks.TryGetValue(id, out var track))
             {
                 LogSyncError(id, "Track not found", "ライブラリ内に指定されたTrack IDが存在しません。", "ライブラリを再読み込みしてください。");
@@ -741,7 +743,7 @@ Track ID: {trackId}
             var fileName = Path.GetFileName(effectiveLocation);
             long fileLength = 0;
             try { fileLength = new FileInfo(effectiveLocation).Length; } catch { }
-            LogTransferredTrack(id, track.Name, track.Artist ?? "不明", track.Album ?? "不明", fileName, fileLength);
+            LogTransferredTrack(id, track.Name, track.Artist ?? "不明", track.Album ?? "不明", fileName, fileLength, reason);
             return Results.File(effectiveLocation, enableRangeProcessing: true, fileDownloadName: fileName);
         });
 
