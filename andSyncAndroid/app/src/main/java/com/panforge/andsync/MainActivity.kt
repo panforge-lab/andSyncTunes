@@ -186,7 +186,9 @@ data class OrphanTrackInfo(
     val artist: String,       // 例: "米津玄師"
     val album: String,        // 例: "STRAY SHEEP"
     val fileSize: Long,       // 例: 8492019
-    val documentFile: DocumentFile
+    val documentFile: DocumentFile,
+    val albumDoc: DocumentFile? = null,
+    val artistDoc: DocumentFile? = null
 )
 
 // 端末保存先フォルダから「どのプレイリストにも含まれていない孤立音楽ファイル」を走査検出
@@ -244,7 +246,9 @@ suspend fun scanOrphanTracks(
                                         artist = artistName,
                                         album = albumName,
                                         fileSize = trackDoc.length(),
-                                        documentFile = trackDoc
+                                        documentFile = trackDoc,
+                                        albumDoc = albumDoc,
+                                        artistDoc = artistDoc
                                     )
                                 )
                             }
@@ -266,7 +270,9 @@ suspend fun scanOrphanTracks(
                                 artist = artistName,
                                 album = "",
                                 fileSize = albumDoc.length(),
-                                documentFile = albumDoc
+                                documentFile = albumDoc,
+                                albumDoc = null,
+                                artistDoc = artistDoc
                             )
                         )
                     }
@@ -1411,7 +1417,11 @@ fun ManageTabScreen(
                     var deletedTrackFiles = 0
                     var deletedM3u8Files = 0
 
-                    // 影響を受けたアルバム・アーティストフォルダの記録用セット
+                    val artistDirMap = targetDoc.listFiles()
+                        .filter { it.isDirectory && it.name != null }
+                        .associateBy { it.name!!.lowercase() }
+                        .toMutableMap()
+                    val albumDirMap = mutableMapOf<String, DocumentFile?>()
                     val affectedFolders = mutableSetOf<Pair<String, String>>()
 
                     // 1. 孤立楽曲ファイルの削除
@@ -1423,8 +1433,14 @@ fun ManageTabScreen(
                             val fileName = parts[2]
                             affectedFolders.add(Pair(artistName, albumName))
 
-                            val artistDoc = targetDoc.findFile(artistName)
-                            val albumDoc = artistDoc?.findFile(albumName)
+                            val artistKey = artistName.lowercase()
+                            val artistDoc = artistDirMap[artistKey]
+                            val albumDoc = artistDoc?.let { aDoc ->
+                                val albumKey = "$artistKey/${albumName.lowercase()}"
+                                albumDirMap.getOrPut(albumKey) {
+                                    aDoc.listFiles().firstOrNull { it.isDirectory && it.name?.equals(albumName, ignoreCase = true) == true }
+                                }
+                            }
                             val fileDoc = albumDoc?.findFile(fileName)
                             if (fileDoc != null && fileDoc.delete()) {
                                 deletedTrackFiles++
@@ -1446,9 +1462,11 @@ fun ManageTabScreen(
 
                     // 2. 空になったアルバムフォルダおよびアーティストフォルダのクリーンアップ
                     affectedFolders.forEach { (artistName, albumName) ->
-                        val artistDoc = targetDoc.findFile(artistName)
+                        val artistKey = artistName.lowercase()
+                        val artistDoc = artistDirMap[artistKey]
                         if (artistDoc != null && artistDoc.isDirectory) {
-                            val albumDoc = artistDoc.findFile(albumName)
+                            val albumKey = "$artistKey/${albumName.lowercase()}"
+                            val albumDoc = albumDirMap[albumKey] ?: artistDoc.findFile(albumName)
                             if (albumDoc != null && albumDoc.isDirectory) {
                                 // アルバム内のファイルを再確認し、空なら削除
                                 if (albumDoc.listFiles().isEmpty()) {
@@ -1820,60 +1838,57 @@ fun CleanerTabScreen(
                 val targetDoc = DocumentFile.fromTreeUri(context, targetFolderUri)
                 if (targetDoc != null && targetDoc.canWrite()) {
                     var deletedCount = 0
-                    val affectedFolders = mutableSetOf<Pair<String, String>>()
+                    val affectedAlbumDocs = mutableSetOf<DocumentFile>()
+                    val affectedArtistDocs = mutableSetOf<DocumentFile>()
 
-                    selectedTracks.forEach { track ->
-                        val parts = track.relativePath.split('/')
-                        if (parts.size >= 3) {
-                            val artistName = parts[0]
-                            val albumName = parts[1]
-                            val fileName = parts[2]
-                            affectedFolders.add(Pair(artistName, albumName))
-
-                            val artistDoc = targetDoc.findFile(artistName)
-                            val albumDoc = artistDoc?.findFile(albumName)
-                            val fileDoc = albumDoc?.findFile(fileName)
-                            if (fileDoc != null && fileDoc.delete()) {
-                                deletedCount++
-                                if (deletedCount % 10 == 0) {
-                                    try {
-                                        val currentFree = getAvailableStorageBytes(context, targetFolderUri)
-                                        if (currentFree > 0L) {
-                                            SyncStateManager.updateStorage(currentFree)
-                                        }
-                                    } catch (_: Exception) {}
-                                    withContext(Dispatchers.Main) {
-                                        deleteStatusText = "削除中: $deletedCount / ${selectedTracks.size} 曲"
-                                    }
-                                }
+                    val totalToDelete = selectedTracks.size
+                    selectedTracks.forEachIndexed { index, track ->
+                        // 1. 保持しているDocumentFileを直接一発削除（検索オーバーヘッドゼロ）
+                        val isDeleted = try {
+                            if (track.documentFile.exists()) {
+                                track.documentFile.delete()
+                            } else {
+                                true
                             }
-                        } else if (parts.size == 2) {
-                            val artistName = parts[0]
-                            val fileName = parts[1]
-                            affectedFolders.add(Pair(artistName, ""))
+                        } catch (_: Exception) {
+                            false
+                        }
 
-                            val artistDoc = targetDoc.findFile(artistName)
-                            val fileDoc = artistDoc?.findFile(fileName)
-                            if (fileDoc != null && fileDoc.delete()) {
-                                deletedCount++
+                        if (isDeleted) {
+                            deletedCount++
+                            track.albumDoc?.let { affectedAlbumDocs.add(it) }
+                            track.artistDoc?.let { affectedArtistDocs.add(it) }
+
+                            if (deletedCount % 10 == 0 || index == totalToDelete - 1) {
+                                try {
+                                    val currentFree = getAvailableStorageBytes(context, targetFolderUri)
+                                    if (currentFree > 0L) {
+                                        SyncStateManager.updateStorage(currentFree)
+                                    }
+                                } catch (_: Exception) {}
+                                withContext(Dispatchers.Main) {
+                                    deleteStatusText = "削除中: $deletedCount / $totalToDelete 曲"
+                                }
                             }
                         }
                     }
 
-                    // 空になったアルバム・アーティストフォルダを掃除
-                    affectedFolders.forEach { (artistName, albumName) ->
-                        val artistDoc = targetDoc.findFile(artistName)
-                        if (artistDoc != null && artistDoc.isDirectory) {
-                            if (albumName.isNotEmpty()) {
-                                val albumDoc = artistDoc.findFile(albumName)
-                                if (albumDoc != null && albumDoc.isDirectory && albumDoc.listFiles().isEmpty()) {
-                                    albumDoc.delete()
-                                }
+                    // 2. 空になったアルバムフォルダを掃除（直接保持した参照をチェック）
+                    affectedAlbumDocs.forEach { albumDoc ->
+                        try {
+                            if (albumDoc.exists() && albumDoc.isDirectory && albumDoc.listFiles().isEmpty()) {
+                                albumDoc.delete()
                             }
-                            if (artistDoc.listFiles().isEmpty()) {
+                        } catch (_: Exception) {}
+                    }
+
+                    // 3. 空になったアーティストフォルダを掃除
+                    affectedArtistDocs.forEach { artistDoc ->
+                        try {
+                            if (artistDoc.exists() && artistDoc.isDirectory && artistDoc.listFiles().isEmpty()) {
                                 artistDoc.delete()
                             }
-                        }
+                        } catch (_: Exception) {}
                     }
 
                     // 空き容量確定反映
