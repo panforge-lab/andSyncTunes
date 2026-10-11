@@ -660,6 +660,7 @@ fun MainSyncApp(
     val syncProgressText by SyncStateManager.progressText.collectAsState()
     val isSyncError by SyncStateManager.isError.collectAsState()
     val failedTracks by SyncStateManager.failedTracks.collectAsState()
+    val syncResultItems by SyncStateManager.syncResultItems.collectAsState()
 
     // mDNS 自動検出状態
     var discoveryStatus by remember { mutableStateOf("🔍 PCを自動探索中...") }
@@ -843,6 +844,7 @@ fun MainSyncApp(
                     syncProgressText = syncProgressText,
                     isSyncError = isSyncError,
                     failedTracks = failedTracks,
+                    syncResultItems = syncResultItems,
                     onStartSync = {
                         if (!SyncStateManager.isWifiConnected(context)) {
                             Toast.makeText(context, "⚠️ Wi-Fiに接続されていません。PCと同じWi-Fiまたはテザリングに接続してください", Toast.LENGTH_LONG).show()
@@ -928,6 +930,7 @@ fun SyncTabScreen(
     syncProgressText: String,
     isSyncError: Boolean,
     failedTracks: List<SyncErrorInfo> = emptyList(),
+    syncResultItems: List<SyncResultItem> = emptyList(),
     onStartSync: () -> Unit,
     onCancelSync: () -> Unit
 ) {
@@ -936,6 +939,7 @@ fun SyncTabScreen(
     // ツリーの展開状態 (開いているフォルダの persistentId セット)
     var expandedFolderIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showErrorDialog by remember { mutableStateOf(false) }
+    var showResultDialog by remember { mutableStateOf(false) }
 
     // 階層ツリー構造のフラット化リストと各フォルダの末端プレイリストマップ
     val (treeVisibleItems, descendantLeavesMap) = remember(playlists, expandedFolderIds) {
@@ -1268,6 +1272,17 @@ fun SyncTabScreen(
                             Text("⚠️ 失敗した ${failedTracks.size} 曲のエラー詳細を確認", style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                    if (syncResultItems.isNotEmpty()) {
+                        val successCount = syncResultItems.count { it.isSuccess }
+                        val failCount = syncResultItems.count { !it.isSuccess }
+                        OutlinedButton(
+                            onClick = { showResultDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Text("📊 転送結果の詳細 (${syncResultItems.size}曲: ⭕$successCount / ❌$failCount) を確認", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }
@@ -1328,6 +1343,89 @@ fun SyncTabScreen(
             },
             confirmButton = {
                 Button(onClick = { showErrorDialog = false }) {
+                    Text("閉じる")
+                }
+            }
+        )
+    }
+
+    if (showResultDialog && syncResultItems.isNotEmpty()) {
+        val successCount = syncResultItems.count { it.isSuccess }
+        val failCount = syncResultItems.count { !it.isSuccess }
+        AlertDialog(
+            onDismissRequest = { showResultDialog = false },
+            title = {
+                Text("📊 楽曲転送結果一覧 (${syncResultItems.size}曲)", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "⭕ 転送成功: ${successCount}曲 ｜ ❌ 失敗: ${failCount}曲",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = if (failCount > 0) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                    )
+                    Divider()
+                    syncResultItems.forEachIndexed { idx, item ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (item.isSuccess) Color(0xFFF1F8E9) else MaterialTheme.colorScheme.errorContainer
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${idx + 1}. ${item.trackName}",
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        if (item.isSuccess) "⭕ 成功" else "❌ 失敗",
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (item.isSuccess) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                                    )
+                                }
+                                Text(
+                                    "👤 ${item.artist ?: "不明"} / 💿 ${item.album ?: "不明"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.DarkGray
+                                )
+                                if (!item.playlistName.isNullOrBlank()) {
+                                    Text(
+                                        "📁 プレイリスト: ${item.playlistName}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.DarkGray
+                                    )
+                                }
+                                if (!item.isSuccess && !item.errorMessage.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "❗ 原因: ${item.errorMessage}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showResultDialog = false }) {
                     Text("閉じる")
                 }
             }

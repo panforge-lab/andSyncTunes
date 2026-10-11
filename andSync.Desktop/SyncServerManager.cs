@@ -194,10 +194,34 @@ Track ID: {trackId}
 ";
             File.AppendAllText(logPath, entry, System.Text.Encoding.UTF8);
             OnLog?.Invoke($"[同期エラー記録] {trackName} - {reason}");
+
+            // 転送結果ログ側にも失敗履歴を記録
+            try
+            {
+                string transferLogPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "transferred_tracks.log");
+                string transferEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [❌ 転送失敗] Track ID: {trackId} | {artistName} - {trackName} | 理由: {reason} ({detail})\n";
+                File.AppendAllText(transferLogPath, transferEntry, System.Text.Encoding.UTF8);
+            }
+            catch { }
         }
         catch (Exception ex)
         {
             OnLog?.Invoke($"[エラーログ書き込み失敗] {ex.Message}");
+        }
+    }
+
+    public void LogTransferredTrack(int trackId, string trackName, string artistName, string albumName, string fileName, long size)
+    {
+        try
+        {
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "transferred_tracks.log");
+            string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [⭕ 転送成功] Track ID: {trackId} | {artistName} - {trackName} | アルバム: {albumName} | ファイル: {fileName} | サイズ: {size:N0} bytes\n";
+            File.AppendAllText(logPath, entry, System.Text.Encoding.UTF8);
+            OnLog?.Invoke($"[転送成功] {artistName} - {trackName} ({fileName})");
+        }
+        catch (Exception ex)
+        {
+            OnLog?.Invoke($"[転送ログ書き込み失敗] {ex.Message}");
         }
     }
 
@@ -715,6 +739,9 @@ Track ID: {trackId}
             }
 
             var fileName = Path.GetFileName(effectiveLocation);
+            long fileLength = 0;
+            try { fileLength = new FileInfo(effectiveLocation).Length; } catch { }
+            LogTransferredTrack(id, track.Name, track.Artist ?? "不明", track.Album ?? "不明", fileName, fileLength);
             return Results.File(effectiveLocation, enableRangeProcessing: true, fileDownloadName: fileName);
         });
 

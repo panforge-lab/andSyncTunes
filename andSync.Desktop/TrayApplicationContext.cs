@@ -155,6 +155,25 @@ public class TrayApplicationContext : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
 
+        // 転送結果ログを開く
+        var transferLogItem = new ToolStripMenuItem("📄 転送結果ログを開く (メモ帳)", null, (s, e) =>
+        {
+            try
+            {
+                string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "transferred_tracks.log");
+                if (!File.Exists(logPath))
+                {
+                    File.WriteAllText(logPath, $"# andSyncTunes 転送結果ログ - 作成日: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n", System.Text.Encoding.UTF8);
+                }
+                Process.Start(new ProcessStartInfo("notepad.exe", logPath) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"ログを開けませんでした: {ex.Message}", "andSyncTunes", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        });
+        menu.Items.Add(transferLogItem);
+
         // 同期エラーログを開く
         var errorLogItem = new ToolStripMenuItem("⚠️ 同期エラーログを開く (メモ帳)", null, (s, e) =>
         {
@@ -167,12 +186,12 @@ public class TrayApplicationContext : ApplicationContext
                 }
                 else
                 {
-                    MessageBox.Show("同期エラーログはありません（同期エラーは発生していません）。", "andSync", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show("同期エラーログはありません（同期エラーは発生していません）。", "andSyncTunes", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"ログを開けませんでした: {ex.Message}", "andSync", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"ログを開けませんでした: {ex.Message}", "andSyncTunes", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         });
         menu.Items.Add(errorLogItem);

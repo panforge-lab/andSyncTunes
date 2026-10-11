@@ -339,6 +339,7 @@ class SyncService : Service() {
         var downloadedCount = 0
         var skippedCount = 0
         val failedTracks = mutableListOf<Pair<TrackDetail, String>>()
+        val downloadedTracks = mutableListOf<TrackDetail>()
 
         if (targetFolderUri != null) {
             // SAF (microSD / ストレージ)
@@ -480,6 +481,7 @@ class SyncService : Service() {
                                     }
                                     isWriteSuccess = true
                                     downloadedCount++
+                                    downloadedTracks.add(track)
                                     isDownloaded = true
 
                                     // 10曲転送ごとにストレージ空き容量を半リアルタイム取得・更新 (StatFsは軽量システムコールのため速度影響ゼロ)
@@ -560,18 +562,35 @@ class SyncService : Service() {
             } else {
                 "同期完了 (一部失敗あり): ${selectedPlaylists.size}件のプレイリスト\n(転送: ${downloadedCount}曲, スキップ: ${skippedCount}曲, ⚠️ 失敗: ${failedTracks.size}曲)"
             }
-            val errorInfos = failedTracks.map { (track, errMsg) ->
+            val resultItems = mutableListOf<SyncResultItem>()
+            downloadedTracks.forEach { track ->
                 val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
-                SyncErrorInfo(
-                    trackId = track.trackId,
-                    trackName = track.name,
-                    artist = track.artist,
-                    album = track.album,
-                    playlistName = plNames,
-                    errorMessage = errMsg
+                resultItems.add(
+                    SyncResultItem(
+                        trackId = track.trackId,
+                        trackName = track.name,
+                        artist = track.artist,
+                        album = track.album,
+                        playlistName = plNames,
+                        isSuccess = true
+                    )
                 )
             }
-            SyncStateManager.completeSync(resultMsg, errorInfos)
+            failedTracks.forEach { (track, errMsg) ->
+                val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
+                resultItems.add(
+                    SyncResultItem(
+                        trackId = track.trackId,
+                        trackName = track.name,
+                        artist = track.artist,
+                        album = track.album,
+                        playlistName = plNames,
+                        isSuccess = false,
+                        errorMessage = errMsg
+                    )
+                )
+            }
+            SyncStateManager.completeSync(resultMsg, resultItems)
             showFinishedNotification(resultMsg, isError = failedTracks.isNotEmpty())
         } else {
             // アプリ専用領域 fallback
@@ -679,6 +698,7 @@ class SyncService : Service() {
                                     }
                                     isWriteSuccess = true
                                     downloadedCount++
+                                    downloadedTracks.add(track)
                                     isDownloaded = true
                                 } finally {
                                     if (!isWriteSuccess && destFile.exists()) {
@@ -730,18 +750,35 @@ class SyncService : Service() {
             } else {
                 "同期完了 (一部失敗あり): ${selectedPlaylists.size}件のプレイリスト\n(転送: ${downloadedCount}曲, スキップ: ${skippedCount}曲, ⚠️ 失敗: ${failedTracks.size}曲)"
             }
-            val errorInfos = failedTracks.map { (track, errMsg) ->
+            val resultItems = mutableListOf<SyncResultItem>()
+            downloadedTracks.forEach { track ->
                 val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
-                SyncErrorInfo(
-                    trackId = track.trackId,
-                    trackName = track.name,
-                    artist = track.artist,
-                    album = track.album,
-                    playlistName = plNames,
-                    errorMessage = errMsg
+                resultItems.add(
+                    SyncResultItem(
+                        trackId = track.trackId,
+                        trackName = track.name,
+                        artist = track.artist,
+                        album = track.album,
+                        playlistName = plNames,
+                        isSuccess = true
+                    )
                 )
             }
-            SyncStateManager.completeSync(resultMsg, errorInfos)
+            failedTracks.forEach { (track, errMsg) ->
+                val plNames = trackPlaylistsMap[track.trackId]?.joinToString(", ") ?: "なし"
+                resultItems.add(
+                    SyncResultItem(
+                        trackId = track.trackId,
+                        trackName = track.name,
+                        artist = track.artist,
+                        album = track.album,
+                        playlistName = plNames,
+                        isSuccess = false,
+                        errorMessage = errMsg
+                    )
+                )
+            }
+            SyncStateManager.completeSync(resultMsg, resultItems)
             showFinishedNotification(resultMsg, isError = failedTracks.isNotEmpty())
         }
     }

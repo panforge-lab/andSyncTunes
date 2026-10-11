@@ -1,4 +1,4 @@
-﻿package com.panforge.andsync
+package com.panforge.andsync
 
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +28,9 @@ object SyncStateManager {
     private val _failedTracks = MutableStateFlow<List<SyncErrorInfo>>(emptyList())
     val failedTracks: StateFlow<List<SyncErrorInfo>> = _failedTracks.asStateFlow()
 
+    private val _syncResultItems = MutableStateFlow<List<SyncResultItem>>(emptyList())
+    val syncResultItems: StateFlow<List<SyncResultItem>> = _syncResultItems.asStateFlow()
+
     private val _availableStorageBytes = MutableStateFlow<Long?>(null)
     val availableStorageBytes: StateFlow<Long?> = _availableStorageBytes.asStateFlow()
 
@@ -47,6 +50,7 @@ object SyncStateManager {
         _statusMessage.value = null
         _isError.value = false
         _failedTracks.value = emptyList()
+        _syncResultItems.value = emptyList()
     }
 
     fun updateProgress(current: Int, total: Int, trackName: String) {
@@ -63,13 +67,16 @@ object SyncStateManager {
         _progressText.value = text
     }
 
-    fun completeSync(message: String, errors: List<SyncErrorInfo> = emptyList()) {
+    fun completeSync(message: String, resultItems: List<SyncResultItem> = emptyList()) {
         _isSyncing.value = false
         _progressFraction.value = 1f
         _progressText.value = message
         _statusMessage.value = message
-        _isError.value = errors.isNotEmpty()
-        _failedTracks.value = errors
+        _isError.value = resultItems.any { !it.isSuccess }
+        _syncResultItems.value = resultItems
+        _failedTracks.value = resultItems.filter { !it.isSuccess }.map {
+            SyncErrorInfo(it.trackId, it.trackName, it.artist, it.album, it.playlistName, it.errorMessage ?: "")
+        }
         isCancelRequested = false
     }
 
@@ -106,6 +113,16 @@ object SyncStateManager {
                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
     }
 }
+
+data class SyncResultItem(
+    val trackId: Int,
+    val trackName: String,
+    val artist: String?,
+    val album: String?,
+    val playlistName: String?,
+    val isSuccess: Boolean, // true = ⭕ 転送成功, false = ❌ 転送失敗
+    val errorMessage: String? = null
+)
 
 data class SyncErrorInfo(
     val trackId: Int,
