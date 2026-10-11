@@ -22,6 +22,9 @@ public class SyncServerManager
     private Makaretu.Dns.MulticastService? _mdns;
     private Task? _serverTask;
     private FileSystemWatcher? _xmlWatcher;
+    public const string GitHubLatestApkUrl = "https://github.com/panforge-lab/andSyncTunes/releases/latest/download/andSyncTunes.apk";
+    public const string GitHubReleasesPageUrl = "https://github.com/panforge-lab/andSyncTunes/releases";
+
     private DateTime _lastXmlLoadTime = DateTime.MinValue;
     private string _currentXmlPath = "";
 
@@ -518,7 +521,10 @@ Track ID: {trackId}
                 スマホのブラウザでこのボタンをタップすると、最新の andSyncTunes アプリ（APK）を直接ダウンロードしてインストールできます。
             </p>
             <div style='text-align: center; margin: 15px 0;'>
-                <a href='/download-apk?v=0.9.0-release' class='btn'>📥 andSyncTunes Androidアプリ (Release版 / 約1.9MB) をダウンロード</a>
+                <a href='/download-apk' class='btn'>📥 andSyncTunes Androidアプリ (最新版APK) をダウンロード</a>
+                <div style='margin-top: 10px;'>
+                    <a href='{GitHubReleasesPageUrl}' target='_blank' style='font-size: 13px; color: #2563eb; text-decoration: none; font-weight: 500;'>📦 GitHub Releases で全バージョン・更新履歴を見る ↗</a>
+                </div>
                 <div style='margin-top: 8px; font-size: 12px; color: #64748b;'>※ 以前の旧版/Debug版をインストール済みの場合は、署名競合を防ぐため端末側でアンインストール後にインストールしてください。</div>
             </div>
         </div>
@@ -560,7 +566,7 @@ Track ID: {trackId}
             return Results.NotFound();
         });
 
-        // 2. APKダウンロード（Release版最優先）
+        // 2. APKダウンロード（ローカル優先 ＆ GitHub Releases 最新版へ自動転送）
         app.MapGet("/download-apk", (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
@@ -568,11 +574,11 @@ Track ID: {trackId}
             context.Response.Headers.Expires = "0";
 
             string? effectiveApk = ResolveApkPath();
-            if (string.IsNullOrEmpty(effectiveApk) || !File.Exists(effectiveApk))
+            if (!string.IsNullOrEmpty(effectiveApk) && File.Exists(effectiveApk))
             {
-                return Results.NotFound(new { error = "APK file not found" });
+                return Results.File(effectiveApk, "application/vnd.android.package-archive", "andSyncTunes.apk");
             }
-            return Results.File(effectiveApk, "application/vnd.android.package-archive", "andSyncTunes.apk");
+            return Results.Redirect(GitHubLatestApkUrl);
         });
 
         // 3. 疎通確認

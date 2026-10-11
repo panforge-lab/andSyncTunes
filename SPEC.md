@@ -554,8 +554,8 @@
 
 | ファイル名 | プラットフォーム | サイズ | 備考 |
 |---|---|---|---|
-| `andSyncTunes-v0.9.0.apk` | Android 7.0+ | **2.53 MB** | R8コード最適化・難読化保護（Gsonモデル・Google Play Code Scanner完全保護）、正式キーストア署名済み (`keystore/andsync-release.jks`) |
-| `andSyncTunes-Windows-v0.9.0.zip` | Windows 10/11 (x64) | **2.46 MB** | Releaseビルド済みのポータブル一式（常駐エージェント＋Webダッシュボード＋Release APK同梱） |
+| `andSyncTunes-v0.9.0.apk` / `andSyncTunes.apk` | Android 7.0+ | **2.53 MB** | R8コード最適化・難読化保護（Gsonモデル・Google Play Code Scanner完全保護）、正式キーストア署名済み (`keystore/andsync-release.jks`)。GitHub Releases 添付用。 |
+| `andSyncTunes-Windows-v0.9.0.zip` | Windows 10/11 (x64) | **約725 KB** | 超軽量ポータブル一式（常駐エージェント＋Webダッシュボード）。APK同梱を廃止し、GitHub Releasesの `latest/download` から直接取得するスマート設計により大幅スリム化。 |
 
 ### 7.2 panForge ブランドデザインアセット (`assets/ofuse/`)
 
