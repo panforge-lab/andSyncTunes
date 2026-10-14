@@ -553,11 +553,27 @@ class SyncService : Service() {
                 val safePlaylistBase = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().trimEnd('.').trim().ifEmpty { "playlist" }
                 val safePlaylistName = "$safePlaylistBase.m3u8"
                 val m3u8Key = safePlaylistName.lowercase()
-                val m3u8Doc = existingM3u8Map[m3u8Key] ?: targetDoc.createFile("audio/x-mpegurl", safePlaylistName)?.also {
-                    existingM3u8Map[m3u8Key] = it
+
+                // 既存のM3U8がある場合、末尾に古い曲の残骸が残らないよう事前削除してクリーン再作成
+                var m3u8Doc = existingM3u8Map[m3u8Key]
+                if (m3u8Doc != null) {
+                    try {
+                        m3u8Doc.delete()
+                        m3u8Doc = null
+                    } catch (_: Exception) {}
+                }
+                if (m3u8Doc == null) {
+                    m3u8Doc = targetDoc.createFile("audio/x-mpegurl", safePlaylistName)?.also {
+                        existingM3u8Map[m3u8Key] = it
+                    }
                 }
                 if (m3u8Doc != null) {
-                    contentResolver.openOutputStream(m3u8Doc.uri)?.use { output ->
+                    val outStream = try {
+                        contentResolver.openOutputStream(m3u8Doc.uri, "wt")
+                    } catch (_: Exception) {
+                        contentResolver.openOutputStream(m3u8Doc.uri)
+                    }
+                    outStream?.use { output ->
                         OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
                             writer.write("#EXTM3U\n")
                             tracks.forEach { t ->
@@ -766,6 +782,9 @@ class SyncService : Service() {
                 val safePlaylistBase = pl.name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().trimEnd('.').trim().ifEmpty { "playlist" }
                 val safePlaylistName = "$safePlaylistBase.m3u8"
                 val m3u8File = File(targetDir, safePlaylistName)
+                if (m3u8File.exists()) {
+                    try { m3u8File.delete() } catch (_: Exception) {}
+                }
                 FileOutputStream(m3u8File).use { output ->
                     OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
                         writer.write("#EXTM3U\n")
